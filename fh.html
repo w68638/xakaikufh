@@ -3,35 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>防红链接</title>
+    <title>凯酷网络安全认证</title>
     <script>
-        function getQueryVariable(variable) {
-            var query = window.location.search.substring(1);
-            var vars = query.split('&');
-            for (var i = 0; i < vars.length; i++) {
-                var pair = vars[i].split('=');
-                if (decodeURIComponent(pair[0]) == variable) {
-                    return decodeURIComponent(pair[1]);
-                }
-            }
-            return null;
+        // 配置项
+        const CONFIG = {
+            // 允许的域名白名单（生成链接的域名）
+            ALLOWED_DOMAINS: ['fh.xakaiku.cn', 'localhost'],
+            // 加密密钥（建议定期更换）
+            SECRET_KEY: 'xakaiku',
+            // URL参数名
+            PARAM_NAME: 'u'
+        };
+
+        // 简单的加密函数（实际生产环境应使用更安全的加密方式）
+        function encrypt(text, key) {
+            return btoa(encodeURIComponent(text).split('').map(
+                (char, i) => String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length))
+            ).join(''));
         }
-        
-        window.onload = function() {
-            var targetUrl = getQueryVariable('url');
-            if (targetUrl) {
-                var iframe = document.createElement('iframe');
-                iframe.src = targetUrl;
-                iframe.style.width = '100%';
-                iframe.style.height = '100%';
-                iframe.style.border = 'none';
-                iframe.style.position = 'fixed';
-                iframe.style.top = '0';
-                iframe.style.left = '0';
-                document.body.appendChild(iframe);
-            } else {
-                document.body.innerHTML = '<h1>参数错误</h1><p>请提供正确的URL参数</p>';
+
+        function decrypt(text, key) {
+            return decodeURIComponent(atob(text).split('').map(
+                (char, i) => String.fromCharCode(char.charCodeAt(0) ^ key.charCodeAt(i % key.length))
+            ).join(''));
+        }
+
+        // 检查来源域名
+        function checkReferer() {
+            const referer = document.referrer;
+            if (!referer) return false;
+            
+            try {
+                const domain = new URL(referer).hostname;
+                return CONFIG.ALLOWED_DOMAINS.includes(domain);
+            } catch {
+                return false;
             }
+        }
+
+        // 检查链接是否过期
+        function checkExpiry(encryptedData) {
+            try {
+                const decrypted = decrypt(encryptedData, CONFIG.SECRET_KEY);
+                const [timestamp, url] = decrypted.split('|');
+                
+                if (!timestamp || !url) return null;
+                
+                const expiryTime = parseInt(timestamp);
+                const currentTime = Math.floor(Date.now() / 1000);
+                
+                if (currentTime > expiryTime) {
+                    return 'expired';
+                }
+                
+                return url;
+            } catch (e) {
+                console.error('解密失败:', e);
+                return null;
+            }
+        }
+
+        window.onload = function() {
+            // 检查来源
+            if (!checkReferer()) {
+                document.body.innerHTML = '<h1>访问被拒绝</h1><p>请通过合法渠道访问此链接</p>';
+                return;
+            }
+
+            // 解析URL参数
+            const urlParams = new URLSearchParams(window.location.search);
+            const encryptedData = urlParams.get(CONFIG.PARAM_NAME);
+            
+            if (!encryptedData) {
+                document.body.innerHTML = '<h1>参数错误</h1><p>缺少必要的URL参数</p>';
+                return;
+            }
+
+            // 解密并检查有效期
+            const targetUrl = checkExpiry(encryptedData);
+            
+            if (targetUrl === 'expired') {
+                document.body.innerHTML = '<h1>链接已过期</h1><p>此链接已超过有效期</p>';
+                return;
+            }
+            
+            if (!targetUrl) {
+                document.body.innerHTML = '<h1>链接无效</h1><p>提供的链接参数不正确</p>';
+                return;
+            }
+
+            // 创建iframe加载目标网站
+            const iframe = document.createElement('iframe');
+            iframe.src = targetUrl;
+            iframe.style.width = '100%';
+            iframe.style.height = '100%';
+            iframe.style.border = 'none';
+            iframe.style.position = 'fixed';
+            iframe.style.top = '0';
+            iframe.style.left = '0';
+            document.body.appendChild(iframe);
         }
     </script>
 </head>
